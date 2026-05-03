@@ -1,0 +1,65 @@
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Build / packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Test and tool caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Notebook checkpoints
+.ipynb_checkpoints/
+
+# OS / editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Secrets / environment files
+.env
+.env.*
+*.key
+*.pem
+
+# Audio processing outputs and temp files
+Transcriptions/
+temp_uploads/
+words_tmp*.json
+diar_tmp*.json
+audio_chunks_*/
+diar_chunks_*/
+*.tmp
+*.temp
+*_converted.wav
+*_16k_mono.wav
+
+# Model caches and downloads
+models/
+whisper_model_cache/
+cache/
+
+# Logs
+*.log
+logs/
+
+# Local data exports
+result.json
+*.rttm
+*.txt
