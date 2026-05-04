@@ -14,8 +14,11 @@ class GroundTruthTurn(TypedDict):
     text: str
 
 
-_GROUND_TRUTH_LINE = re.compile(
-    r"^Speaker\s+(?P<speaker>[^:]+):\s+\[(?P<start>[0-9.]+)s\s+-->\s+(?P<end>[0-9.]+)s\]\s*(?P<text>.*)$"
+_TXT_GROUND_TRUTH_LINE = re.compile(
+    r"^\[(?P<start>[0-9.]+)s\s+--?\s+(?P<end>[0-9.]+)s\]\s+(?P<speaker>SPEAKER_\d+):\s+(?P<text>.*)$"
+)
+_RTTM_LINE = re.compile(
+    r"^SPEAKER\s+\S+\s+\d+\s+(?P<start>[0-9.]+)\s+(?P<duration>[0-9.]+)\s+<NA>\s+<NA>\s+(?P<speaker>\S+)"
 )
 
 
@@ -35,6 +38,7 @@ def compute_cer(reference: str, hypothesis: str) -> float:
 
 
 def _get_ground_truth_path(audio_file: str) -> Path:
+    """Get path to RTTM ground truth file."""
     audio_path = Path(audio_file).expanduser().resolve()
     for parent in [audio_path.parent, *audio_path.parents]:
         candidate = parent / "groundtruth" / f"{audio_path.stem}.rttm"
@@ -43,13 +47,83 @@ def _get_ground_truth_path(audio_file: str) -> Path:
     return audio_path.parent / "groundtruth" / f"{audio_path.stem}.rttm"
 
 
+def _get_ground_truth_txt_path(audio_file: str) -> Path:
+    """Get path to TXT ground truth file."""
+    audio_path = Path(audio_file).expanduser().resolve()
+    for parent in [audio_path.parent, *audio_path.parents]:
+        candidate = parent / "groundtruth" / f"{audio_path.stem}.txt"
+        if candidate.exists():
+            return candidate
+    return audio_path.parent / "groundtruth" / f"{audio_path.stem}.txt"
+
+
+def _parse_rttm_file(rttm_path: Path) -> dict[str, Any]:
+    """Parse RTTM file for diarization turns."""
+    if not rttm_path.exists():
+        return {"turns": [], "path": str(rttm_path)}
+
+    turns: list[GroundTruthTurn] = []
+    for line in rttm_path.read_text(encoding="utf-8").splitlines():
+        match = _RTTM_LINE.match(line.strip())
+        if not match:
+            continue
+        start = float(match.group("start"))
+        duration = float(match.group("duration"))
+        turns.append(
+            {
+                "start": start,
+                "end": start + duration,
+                "speaker": match.group("speaker").strip(),
+                "text": "",
+            }
+        )
+
+    return {
+        "turns": turns,
+        "path": str(rttm_path),
+    }
+
+
+def _parse_txt_file(txt_path: Path) -> dict[str, Any]:
+    """Parse TXT file for transcription text."""
+    if not txt_path.exists():
+        return {"text": "", "turns": [], "path": str(txt_path)}
+
+    turns: list[GroundTruthTurn] = []
+    full_text_parts: list[str] = []
+
+    for line in txt_path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        match = _TXT_GROUND_TRUTH_LINE.match(line)
+        if not match:
+            full_text_parts.append(line)
+            continue
+        turns.append(
+            {
+                "start": float(match.group("start")),
+                "end": float(match.group("end")),
+                "speaker": match.group("speaker").strip(),
+                "text": match.group("text").strip(),
+            }
+        )
+        full_text_parts.append(match.group("text").strip())
+
+    return {
+        "text": " ".join(full_text_parts).strip(),
+        "turns": turns,
+        "path": str(txt_path),
+    }
+
+
 def _parse_ground_truth_file(ground_truth_path: Path) -> dict[str, Any]:
     if not ground_truth_path.exists():
         return {"text": "", "turns": [], "path": str(ground_truth_path)}
 
     turns: list[GroundTruthTurn] = []
     for line in ground_truth_path.read_text(encoding="utf-8").splitlines():
-        match = _GROUND_TRUTH_LINE.match(line.strip())
+        match = _TXT_GROUND_TRUTH_LINE.match(line.strip())
         if not match:
             continue
         turns.append(
@@ -69,7 +143,16 @@ def _parse_ground_truth_file(ground_truth_path: Path) -> dict[str, Any]:
 
 
 def load_ground_truth(audio_file: str) -> dict[str, Any]:
-    return _parse_ground_truth_file(_get_ground_truth_path(audio_file))
+    """Load ground truth from both TXT (transcription) and RTTM (diarization) files."""
+    txt_data = _parse_txt_file(_get_ground_truth_txt_path(audio_file))
+    rttm_data = _parse_rttm_file(_get_ground_truth_path(audio_file))
+    
+    return {
+        "text": txt_data["text"],
+        "turns": rttm_data["turns"],
+        "txt_path": txt_data["path"],
+        "rttm_path": rttm_data["path"],
+    }
 
 
 def _speaker_at_time(turns: list[GroundTruthTurn], timestamp: float) -> str:

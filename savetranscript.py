@@ -27,6 +27,31 @@ def _safe_filename_token(value: str) -> str:
     return re.sub(r"[^A-Za-z0-9._-]+", "_", value).strip("._-") or "unknown"
 
 
+def _bundle_segments(segments: list[Segment]) -> list[Segment]:
+    """Merge consecutive segments from the same speaker into one segment."""
+    if not segments:
+        return segments
+
+    bundled: list[Segment] = []
+    current_bundle = dict(segments[0])
+
+    for i in range(1, len(segments)):
+        next_segment = segments[i]
+        if next_segment.get("speaker") == current_bundle.get("speaker"):
+            # Same speaker: merge text and extend end time
+            current_text = current_bundle.get("text", "").strip()
+            next_text = next_segment.get("text", "").strip()
+            current_bundle["text"] = f"{current_text} {next_text}".strip()
+            current_bundle["end"] = next_segment.get("end", current_bundle.get("end"))
+        else:
+            # Different speaker: save current bundle and start new one
+            bundled.append(current_bundle)
+            current_bundle = dict(next_segment)
+
+    bundled.append(current_bundle)
+    return bundled
+
+
 def build_transcription_report(result: TranscriptionResult) -> list[str]:
     audio_file = str(result.get("audio_file", "unknown_audio"))
     model_size = str(result.get("model", "unknown_model"))
@@ -72,7 +97,8 @@ def build_transcription_report(result: TranscriptionResult) -> list[str]:
         "-" * 40,
     ]
 
-    for segment in segments:
+    bundled_segments = _bundle_segments(segments)
+    for segment in bundled_segments:
         start_time = f"{segment.get('start', 0.0)}"
         end_time = f"{segment.get('end', 0.0)}"
         text = segment.get("text", "").strip()
