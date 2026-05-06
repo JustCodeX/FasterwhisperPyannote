@@ -16,11 +16,16 @@ try:
     import torch
 except Exception:
     torch = None
+import shutil
+
+# Resolve system binaries for portability
+FFMPEG_BIN = shutil.which("ffmpeg") or "ffmpeg"
+FFPROBE_BIN = shutil.which("ffprobe") or "ffprobe"
 
 
 def _get_audio_duration_seconds_ffprobe(audio_path: str) -> float:
     cmd = [
-        "ffprobe",
+        FFPROBE_BIN,
         "-v",
         "error",
         "-show_entries",
@@ -48,7 +53,7 @@ def _split_audio_for_diarization(input_wav: str, chunk_seconds: int = 600, overl
     while start < duration - 0.001:
         out_path = os.path.join(out_dir, f"diar_chunk_{idx:03d}.wav")
         cmd = [
-            "ffmpeg",
+            FFMPEG_BIN,
             "-hide_banner",
             "-loglevel",
             "error",

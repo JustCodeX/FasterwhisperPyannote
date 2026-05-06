@@ -10,6 +10,11 @@ os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 os.environ["MKL_DEBUG_CPU_TYPE"] = "5"
 
 from faster_whisper import WhisperModel
+import shutil
+
+# Resolve system binaries (kept for parity with other workers)
+FFMPEG_BIN = shutil.which("ffmpeg") or "ffmpeg"
+FFPROBE_BIN = shutil.which("ffprobe") or "ffprobe"
 
 
 def run_transcription(audio_path, model_size, output_json):

@@ -10,6 +10,8 @@ import gc
 from pathlib import Path
 from typing import Any, Dict, List, cast
 import warnings
+import sys
+import shutil
 
 warnings.filterwarnings("ignore", category=UserWarning)
 
@@ -28,6 +30,10 @@ def _safe_rtf(process_time: float, audio_duration: float) -> float:
     return process_time / audio_duration
 
 DEFAULT_MODEL = "TheChola/whisper-large-v3-turbo-german-faster-whisper"
+
+# resolve system binaries (ffmpeg / ffprobe) if available on PATH
+FFMPEG_BIN = shutil.which("ffmpeg") or "ffmpeg"
+FFPROBE_BIN = shutil.which("ffprobe") or "ffprobe"
 
 def _clean_text(text: str):
     text = re.sub(r"\s+", " ", text)
@@ -49,7 +55,7 @@ def _preprocess_audio_with_ffmpeg(audio_path: str) -> str:
     output_path = temp_file.name
     print("Converting audio to 16kHz mono WAV...")
     cmd = [
-        "ffmpeg",
+        FFMPEG_BIN,
         "-hide_banner",
         "-loglevel",
         "error",
@@ -76,7 +82,7 @@ def _preprocess_audio_with_ffmpeg(audio_path: str) -> str:
 
 def _get_audio_duration_seconds_ffprobe(audio_path: str) -> float:
     cmd = [
-        "ffprobe",
+        FFPROBE_BIN,
         "-v",
         "error",
         "-show_entries",
@@ -104,7 +110,7 @@ def _split_audio_into_chunks(input_wav: str, chunk_seconds: int = 600) -> List[s
     while start < duration - 0.001:
         out_path = os.path.join(out_dir, f"chunk_{idx:03d}.wav")
         cmd = [
-            "ffmpeg",
+            FFMPEG_BIN,
             "-hide_banner",
             "-loglevel",
             "error",
@@ -229,6 +235,14 @@ def run_pipeline(audio_path, model_id: str = DEFAULT_MODEL, num_speakers: int = 
     audio_abs = str(Path(audio_path).resolve())
     words_tmp, diar_tmp = "words_tmp.json", "diar_tmp.json"
 
+    # ensure ffmpeg/ffprobe are available and the Python interpreter path is explicit
+    if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
+        raise RuntimeError(
+            "ffmpeg and/or ffprobe not found in PATH.\n"
+            "Install with 'brew install ffmpeg' on macOS or 'sudo apt install ffmpeg' on Debian/Ubuntu.\n"
+            "After installing, ensure they are available in your PATH and retry."
+        )
+
     preprocessing_start = time.perf_counter()
     converted_path = _preprocess_audio_with_ffmpeg(audio_abs)
     preprocessing_time = time.perf_counter() - preprocessing_start
@@ -247,7 +261,9 @@ def run_pipeline(audio_path, model_id: str = DEFAULT_MODEL, num_speakers: int = 
     for idx, chunk in enumerate(chunk_paths, start=1):
         print(f"Processing ASR chunk {idx}/{len(chunk_paths)}: {os.path.basename(chunk)}")
         chunk_words_tmp = f"words_tmp_{idx}.json"
-        subprocess.run(["python", "whisper_worker.py", chunk, model_id, chunk_words_tmp], check=True)
+        # invoke worker with the same Python interpreter to ensure environment consistency
+        whisper_script = Path(__file__).resolve().parent / "whisper_worker.py"
+        subprocess.run([sys.executable, str(whisper_script), chunk, model_id, chunk_words_tmp], check=True)
 
         # read and offset times by chunk start
         try:
@@ -287,7 +303,8 @@ def run_pipeline(audio_path, model_id: str = DEFAULT_MODEL, num_speakers: int = 
 
     # Now run diarization once (sequential after ASR complete)
     t_start_diar = time.perf_counter()
-    subprocess.run(["python", "pyannote_worker.py", converted_path, str(num_speakers), diar_tmp, hf_token], check=True)
+    pyannote_script = Path(__file__).resolve().parent / "pyannote_worker.py"
+    subprocess.run([sys.executable, str(pyannote_script), converted_path, str(num_speakers), diar_tmp, hf_token], check=True)
     diar_time = time.perf_counter() - t_start_diar
 
     with open(words_tmp, 'r') as f:

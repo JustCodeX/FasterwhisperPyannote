@@ -63,14 +63,38 @@ Optional können Ground-Truth-Daten geladen werden. Daraus werden Metriken wie W
 - Eine GPU ist hilfreich, aber die Pipeline kann auch auf CPU laufen.
 
 ## Installation
-
-Beispiel:
+Empfohlener, reproduzierbarer Weg (virtuelle Umgebung):
 
 ```bash
-pip install faster-whisper pyannote.audio huggingface_hub torch soundfile jiwer
+# macOS / Linux
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
 ```
 
-Falls du eine eigene Umgebung nutzt, installiere zusätzlich die jeweiligen systemnahen Abhängigkeiten wie `ffmpeg`.
+Wichtig: `ffmpeg`/`ffprobe` müssen als native Systempakete installiert sein. Beispiele:
+
+```bash
+# macOS (Homebrew)
+brew install ffmpeg
+
+# Debian/Ubuntu
+sudo apt update && sudo apt install -y ffmpeg
+```
+
+Setze optional `HF_TOKEN` in der Umgebung, z.B. `export HF_TOKEN="<your_token>"`.
+
+Quick start (automated):
+
+```bash
+# Make the helper script executable (first time)
+chmod +x scripts/setup.sh
+# Run setup (creates .venv and installs pinned requirements)
+./scripts/setup.sh
+```
+
+The `scripts/setup.sh` helper checks for `ffmpeg`/`ffprobe`, creates a virtual environment, and installs the pinned packages from `requirements.txt`.
 
 ## Ausführen
 
@@ -103,6 +127,50 @@ Die folgenden Inhalte sollten nicht ins Repository:
 - Log-Dateien
 
 Diese werden über `.gitignore` ausgeschlossen.
+
+## Troubleshooting
+
+- **ffmpeg/ffprobe nicht gefunden**
+  ```bash
+  which ffmpeg && which ffprobe
+  # Wenn nicht vorhanden:
+  # macOS: brew install ffmpeg
+  # Debian/Ubuntu: sudo apt update && sudo apt install -y ffmpeg
+  ```
+
+- **Hugging Face Auth / pyannote Zugriff**
+  ```bash
+  export HF_TOKEN="<your_token>"
+  ```
+  Falls `HF_TOKEN` nicht gesetzt: Der Code versucht, den Token automatisch zu laden. Für private Modelle ist ein Token meist erforderlich.
+
+- **Modelle werden beim ersten Lauf heruntergeladen**
+  - Erstaufruf kann mehrere Gigabyte Daten und Zeit benötigen.
+  - Zum Testen: kleinere Modelle verwenden oder `--model <smaller-model>` angeben.
+
+- **Out-of-memory / lange Laufzeit**
+  - Pipeline berücksichtigt bereits Chunking für lange Audiodateien (>15 min ASR, >10 min Diarisierung).
+  - Bei Speicherproblemen: `--num-speakers 1` reduzieren oder CPU-Optimierung verwenden.
+
+- **macOS MPS / Torch-Fehler**
+  - Wenn MPS Fehler verursacht, wird automatisch auf CPU zurückgewechselt.
+  - Optional: `torch` für macOS separat installieren oder `PYTORCH_ENABLE_MPS_FALLBACK=1` setzen.
+
+- **scripts/setup.sh: Permission denied**
+  ```bash
+  chmod +x scripts/setup.sh
+  ./scripts/setup.sh
+  ```
+
+- **Venv nicht aktiv / falsche Python-Version**
+  ```bash
+  source .venv/bin/activate
+  python --version  # sollte 3.10+ sein
+  ```
+
+- **Debugging & Logs**
+  - Unbuffered output: `python -u main_pipline.py ...`
+  - Vollständiger Output in Datei: `python main_pipline.py ... 2>&1 | tee output.log`
 
 ## Status
 
