@@ -104,12 +104,13 @@ def _merge_and_normalize_turns(all_turns: List[dict]) -> List[dict]:
 
 def run_diarization(audio_path, num_speakers, output_json, hf_token):
     print("Loading pyannote diarization pipeline...")
-    pipeline = Pipeline.from_pretrained("pyannote/speaker-diarization-3.0", use_auth_token=hf_token)
+    pipeline = Pipeline.from_pretrained("pyannote/speaker-diarization-3.0", token=hf_token)
 
     # move pipeline to MPS if available (Mac), otherwise CPU
     try:
-        device = "mps" if torch is not None and torch.backends.mps.is_available() else "cpu"
-        pipeline.to(device)
+        if pipeline is not None and torch is not None:
+            device = "mps" if torch.backends.mps.is_available() else "cpu"
+            pipeline.to(torch.device(device))
     except Exception:
         pass
 
@@ -119,28 +120,49 @@ def run_diarization(audio_path, num_speakers, output_json, hf_token):
     print(f"Diarization: audio duration {int(duration)}s")
 
     all_turns = []
-    # chunk if long
-    if duration > 600:
-        print("Long audio detected: running diarization in chunks and merging results.")
-        chunks = _split_audio_for_diarization(audio_path, chunk_seconds=600, overlap=2)
-        for idx, (chunk_path, offset) in enumerate(chunks, start=1):
-            print(f"  Diarization chunk {idx}/{len(chunks)} (offset {int(offset)}s)")
-            diarization = pipeline(chunk_path, num_speakers=num_speakers)
-            for turn, _, speaker in diarization.itertracks(yield_label=True):
-                all_turns.append({
+
+    # Helper function to parse the different types of output (M1 vs Standard)
+    def parse_diarization_output(res, offset=0.0):
+        extracted = []
+        # Case A: Standard Pyannote output (has itertracks)
+        if hasattr(res, "itertracks"):
+            for turn, _, speaker in res.itertracks(yield_label=True):
+                extracted.append({
                     "start": float(turn.start) + offset,
                     "end": float(turn.end) + offset,
                     "speaker": str(speaker),
                 })
+        # Case B: MLX/M1 optimized output (has .segments)
+        elif hasattr(res, "segments"):
+            for seg in res.segments:
+                # Handle different attribute names for speaker
+                spk = getattr(seg, "speaker", getattr(seg, "speaker_id", "UNKNOWN"))
+                extracted.append({
+                    "start": float(seg.start) + offset,
+                    "end": float(seg.end) + offset,
+                    "speaker": str(spk),
+                })
+        return extracted
+
+    # Run the pipeline (chunked or whole)
+    if pipeline is None:
+        raise RuntimeError("Failed to load pyannote diarization pipeline")
+    
+    if duration > 600:
+        print("Long audio detected: running diarization in chunks...")
+        chunks = _split_audio_for_diarization(audio_path, chunk_seconds=600, overlap=2)
+        for idx, (chunk_path, offset) in enumerate(chunks, start=1):
+            print(f"  Diarization chunk {idx}/{len(chunks)} (offset {int(offset)}s)")
+            diarization_result = pipeline(chunk_path, num_speakers=num_speakers)
+            all_turns.extend(parse_diarization_output(diarization_result, offset))
             try:
                 os.remove(chunk_path)
             except Exception:
                 pass
     else:
         print("Diarizing whole file...")
-        diarization = pipeline(audio_path, num_speakers=num_speakers)
-        for turn, _, speaker in diarization.itertracks(yield_label=True):
-            all_turns.append({"start": float(turn.start), "end": float(turn.end), "speaker": str(speaker)})
+        diarization_result = pipeline(audio_path, num_speakers=num_speakers)
+        all_turns.extend(parse_diarization_output(diarization_result))
 
     merged = _merge_and_normalize_turns(all_turns)
 
