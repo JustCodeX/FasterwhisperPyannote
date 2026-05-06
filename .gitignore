@@ -63,3 +63,6 @@ logs/
 result.json
 *.rttm
 *.txt
+
+#keep requirements.txt
+!requirements.txt

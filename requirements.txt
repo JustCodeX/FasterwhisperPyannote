@@ -1,0 +1,7 @@
+faster-whisper>=0.8
+pyannote.audio>=2.2
+huggingface-hub>=0.17
+torch>=2.1
+soundfile>=0.12
+jiwer>=2.4
+typing-extensions>=4.5
