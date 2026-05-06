@@ -152,6 +152,11 @@ Diese werden über `.gitignore` ausgeschlossen.
   - Pipeline berücksichtigt bereits Chunking für lange Audiodateien (>15 min ASR, >10 min Diarisierung).
   - Bei Speicherproblemen: `--num-speakers 1` reduzieren oder CPU-Optimierung verwenden.
 
+- **pyannote Output-Kompatibilität (`AttributeError: 'DiarizeOutput' …`)**
+  - Neuere Versionen von `pyannote.audio` (Speaker Diarization 3.x) können ein `DiarizeOutput`-Objekt zurückgeben, das die eigentliche `Annotation` unter dem Schlüssel `"diarization"` enthält, anstatt direkt `.itertracks()` anzubieten.
+  - `pyannote_worker.py` erkennt automatisch beide Formate (alte `Annotation`-API und neue `DiarizeOutput`-Wrapper) und iteriert korrekt über die Sprecher-Turns.
+  - Sollte dennoch ein unbekannter Ausgabetyp auftreten, gibt der Code Typ und verfügbare Attribute/Schlüssel zur Diagnose aus.
+
 - **macOS MPS / Torch-Fehler**
   - Wenn MPS Fehler verursacht, wird automatisch auf CPU zurückgewechselt.
   - Optional: `torch` für macOS separat installieren oder `PYTORCH_ENABLE_MPS_FALLBACK=1` setzen.

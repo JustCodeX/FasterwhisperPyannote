@@ -81,6 +81,51 @@ def _split_audio_for_diarization(input_wav: str, chunk_seconds: int = 600, overl
     return chunks
 
 
+def _iter_speaker_turns(diarization):
+    """Iterate (turn, _, speaker) triples from various pyannote output types.
+
+    Supports:
+    - ``pyannote.core.Annotation`` (old API): has ``.itertracks(yield_label=True)``
+    - ``DiarizeOutput`` / dict-like (new pyannote.audio >=3): exposes the
+      ``Annotation`` under ``output["diarization"]`` or ``output.diarization``
+    """
+    # Fast path: object already supports the classic Annotation API
+    if hasattr(diarization, "itertracks"):
+        yield from diarization.itertracks(yield_label=True)
+        return
+
+    # Try to unwrap a DiarizeOutput or similar container
+    annotation = None
+    if hasattr(diarization, "diarization"):
+        annotation = diarization.diarization
+    else:
+        try:
+            annotation = diarization["diarization"]
+        except (KeyError, TypeError):
+            pass
+
+    if annotation is not None and hasattr(annotation, "itertracks"):
+        yield from annotation.itertracks(yield_label=True)
+        return
+
+    # Give the user actionable debug information before failing
+    debug_lines = [f"ERROR: Unexpected diarization output type: {type(diarization)!r}"]
+    try:
+        debug_lines.append(f"  Attributes: {list(vars(diarization).keys())}")
+    except TypeError:
+        pass
+    try:
+        debug_lines.append(f"  Keys: {list(diarization.keys())}")
+    except Exception:
+        pass
+    print("\n".join(debug_lines), file=sys.stderr)
+    raise AttributeError(
+        f"Cannot iterate speaker turns from {type(diarization)!r}. "
+        "Expected a pyannote.core.Annotation or a DiarizeOutput containing "
+        "an Annotation under the 'diarization' key/attribute."
+    )
+
+
 def _merge_and_normalize_turns(all_turns: List[dict]) -> List[dict]:
     if not all_turns:
         return []
@@ -126,7 +171,7 @@ def run_diarization(audio_path, num_speakers, output_json, hf_token):
         for idx, (chunk_path, offset) in enumerate(chunks, start=1):
             print(f"  Diarization chunk {idx}/{len(chunks)} (offset {int(offset)}s)")
             diarization = pipeline(chunk_path, num_speakers=num_speakers)
-            for turn, _, speaker in diarization.itertracks(yield_label=True):
+            for turn, _, speaker in _iter_speaker_turns(diarization):
                 all_turns.append({
                     "start": float(turn.start) + offset,
                     "end": float(turn.end) + offset,
@@ -139,7 +184,7 @@ def run_diarization(audio_path, num_speakers, output_json, hf_token):
     else:
         print("Diarizing whole file...")
         diarization = pipeline(audio_path, num_speakers=num_speakers)
-        for turn, _, speaker in diarization.itertracks(yield_label=True):
+        for turn, _, speaker in _iter_speaker_turns(diarization):
             all_turns.append({"start": float(turn.start), "end": float(turn.end), "speaker": str(speaker)})
 
     merged = _merge_and_normalize_turns(all_turns)
